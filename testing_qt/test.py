@@ -10,8 +10,8 @@
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QDialog, QApplication, QTableWidgetItem
-
-
+from sheets_handler import Gspread_handler
+import pandas as pd
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
@@ -129,8 +129,11 @@ class Ui_MainWindow(object):
 
 
         #####
-        self.items = 0
-        self.data = {}
+        self.sheet = Gspread_handler()
+        self.data = self.sheet.load_data()
+        self.items = len(self.data) + 1
+        self.table_handler()
+        #####
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
@@ -170,27 +173,38 @@ class Ui_MainWindow(object):
 
         if amount.isdigit():
             self.items += 1
-            self.data[self.items] = [calendary,category,description,amount]
-            self.spending_table.setRowCount(len(self.data))
-            self.spending_table.setColumnCount(4)
-            self.spending_table.setHorizontalHeaderLabels(["Fecha","Categoría","Descripción","Monto"])
-
             self.spending_warning.setText("")
-            count_k, count_v = 0,0
-            for k in self.data.keys():
-                for v in self.data[k]:
-                    #print(v,end="")
-                    print(count_k,count_v,v,end="  ")
-                    self.spending_table.setItem(count_k,count_v,QTableWidgetItem(v))
-                    count_v += 1
-                count_v = 0
-                count_k += 1
-                print()
+            self.data[self.items] = [calendary,category,description,amount]
+            
+
+            self.table_handler()
+
+            print(self.data)
+            df = pd.DataFrame([v for k,v in self.data.items()])
+            df.columns = ["Fecha","Categoría","Concepto","Monto"]
+            self.sheet.update_sheet(df)
         else:
             self.spending_warning.setText("Datos invalidos. Intenta de nuevo")
 
         self.spending_description.setText("")
         self.spending_amount.setText("")
+
+    def table_handler(self):
+        """ Update table with data information """
+        self.spending_table.setRowCount(len(self.data))
+        self.spending_table.setColumnCount(4)
+        self.spending_table.setHorizontalHeaderLabels(["Fecha","Categoría","Descripción","Monto"])
+        count_k, count_v = 0,0
+        for k in self.data.keys():
+            for v in self.data[k]:
+                #print(v,end="")
+                print(count_k,count_v,v,end="  ")
+                self.spending_table.setItem(count_k,count_v,QTableWidgetItem(v))
+                count_v += 1
+            count_v = 0
+            count_k += 1
+            print()
+
 
 if __name__ == "__main__":
     import sys
