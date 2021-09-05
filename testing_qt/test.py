@@ -9,9 +9,12 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QDialog, QApplication, QTableWidgetItem
-from sheets_handler import Gspread_handler
-import pandas as pd
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from sheets_handler import Gspread_handler as gs
+from sheets_handler import Main_sheet as ms
+import threading
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
@@ -73,12 +76,20 @@ class Ui_MainWindow(object):
         self.spending_category.addItem("")
         self.spending_category.addItem("")
         self.spending_category.addItem("")
+        self.spending_category.addItem("")
+
         self.spending_modify = QtWidgets.QPushButton(self.tab_4)
         self.spending_modify.setGeometry(QtCore.QRect(190, 160, 75, 23))
         self.spending_modify.setObjectName("spending_modify")
+        self.spending_modify.clicked.connect(self.modify)
+        self.spending_modify.setEnabled(False)
+
         self.spending_delete = QtWidgets.QPushButton(self.tab_4)
         self.spending_delete.setGeometry(QtCore.QRect(270, 160, 75, 23))
         self.spending_delete.setObjectName("spending_delete")
+        self.spending_delete.clicked.connect(self.delete)
+        self.spending_delete.setEnabled(False)
+
         self.label_5 = QtWidgets.QLabel(self.tab_4)
         self.label_5.setGeometry(QtCore.QRect(420, 60, 391, 31))
         font = QtGui.QFont()
@@ -108,6 +119,10 @@ class Ui_MainWindow(object):
         self.spending_table.setObjectName("spending_table")
         self.spending_table.setColumnCount(0)
         self.spending_table.setRowCount(0)
+
+    
+        self.spending_table.itemSelectionChanged.connect(self.on_selec_change)
+
         self.spending_calendary = QtWidgets.QCalendarWidget(self.tab_4)
         self.spending_calendary.setGeometry(QtCore.QRect(30, 210, 331, 191))
         self.spending_calendary.setObjectName("spending_calendary")
@@ -129,7 +144,8 @@ class Ui_MainWindow(object):
 
 
         #####
-        self.sheet = Gspread_handler()
+        self.sheet = gs()
+        self.main = ms()
         self.data = self.sheet.load_data()
         self.items = len(self.data) + 1
         self.table_handler()
@@ -145,14 +161,12 @@ class Ui_MainWindow(object):
         self.label_2.setText(_translate("MainWindow", "Categoria"))
         self.label_3.setText(_translate("MainWindow", "Descripción"))
         self.label_4.setText(_translate("MainWindow", "Monto"))
-        self.spending_category.setItemText(1, _translate("MainWindow", "Ropa"))
-        self.spending_category.setItemText(2, _translate("MainWindow", "Viajes"))
-        self.spending_category.setItemText(3, _translate("MainWindow", "Transporte"))
-        self.spending_category.setItemText(4, _translate("MainWindow", "Comida"))
-        self.spending_category.setItemText(5, _translate("MainWindow", "Salud"))
-        self.spending_category.setItemText(6, _translate("MainWindow", "Entretenimiento"))
-        self.spending_category.setItemText(7, _translate("MainWindow", "Salidas"))
+
+        self.categories = ["Ropa","Viajes","Transporte","Comida","Salud","Entretenimiento","Salidas","Ingresos"]
+        for num, cat in enumerate(self.categories):
+            self.spending_category.setItemText(num+1, _translate("MainWindow", cat))
         index = self.spending_category.findText("Ropa", QtCore.Qt.MatchFixedString)
+
         self.spending_category.setCurrentIndex(index)
         self.spending_modify.setText(_translate("MainWindow", "Modify"))
         self.spending_delete.setText(_translate("MainWindow", "Delete"))
@@ -163,6 +177,26 @@ class Ui_MainWindow(object):
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_4), _translate("MainWindow", "Tab 2"))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_5), _translate("MainWindow", "Page"))
 
+     
+    def on_selec_change(self):
+        """ Selected cell handler - fill inputs """
+        
+        self.spending_modify.setEnabled(True)
+        self.spending_delete.setEnabled(True)
+
+        row = self.spending_table.currentRow()
+        print("selected",row)
+        print(self.data)
+        data = self.data[row]
+        d,m,y = [int(x) for x in data[0].split("/")]
+        date = QDate(y,m,d)
+        self.spending_calendary.setSelectedDate(date)
+        self.spending_category.setCurrentIndex(self.categories.index(data[1])+1)
+        self.spending_description.setText(data[2])
+        self.spending_amount.setText(data[3])
+        self.row = row
+        
+
     def fn_add_spending(self):
         """ Add new spending to the list """
         calendary = self.spending_calendary.selectedDate()
@@ -171,23 +205,54 @@ class Ui_MainWindow(object):
         description = self.spending_description.text()
         amount = self.spending_amount.text()
 
-        if amount.isdigit():
-            self.items += 1
-            self.spending_warning.setText("")
-            self.data[self.items] = [calendary,category,description,amount]
-            
+        
+        self.spending_warning.setText("")
+        self.data.append([calendary,category,description,amount])
+        self.table_handler()
 
-            self.table_handler()
+        self.sheet.update_sheet(self.data)
 
-            print(self.data)
-            df = pd.DataFrame([v for k,v in self.data.items()])
-            df.columns = ["Fecha","Categoría","Concepto","Monto"]
-            self.sheet.update_sheet(df)
-        else:
+        if 0:
             self.spending_warning.setText("Datos invalidos. Intenta de nuevo")
 
         self.spending_description.setText("")
         self.spending_amount.setText("")
+    
+    def delete(self):
+        self.spending_table.removeRow(self.spending_table.currentRow())
+        deleted = self.data.pop(self.row+1)
+        self.sheet.tab.clear()
+
+        sp = float(deleted[-1])
+        if deleted[1] == "Ingresos":
+            self.income -= sp
+        else:
+            self.spendings -= sp
+
+        self.headers()
+        self.sheet.update_sheet(self.data)
+        print("delete",deleted)
+    
+    def modify(self):
+        #data = self.data[row]
+        print(self.row)
+        items = [
+            self.spending_calendary.selectedDate().toString("dd/MM/yyyy"),
+            self.spending_category.currentText(),
+            self.spending_description.text(),
+            self.spending_amount.text()
+        ]
+        print(items)
+        
+        for num,value in enumerate(items):
+            self.spending_table.setItem(self.row,num,QTableWidgetItem(value))
+        
+        self.data[self.row] = items
+        print(self.data)
+        t = threading.Thread(target = lambda:self.sheet.update_sheet(self.data)).start()
+
+
+        print("modified")
 
     def table_handler(self):
         """ Update table with data information """
@@ -195,16 +260,39 @@ class Ui_MainWindow(object):
         self.spending_table.setColumnCount(4)
         self.spending_table.setHorizontalHeaderLabels(["Fecha","Categoría","Descripción","Monto"])
         count_k, count_v = 0,0
-        for k in self.data.keys():
-            for v in self.data[k]:
+        self.spendings, self.income = 0,0
+        for k in self.data:
+            row = k
+            amount = float(row[3])
+
+            for v in row:
                 #print(v,end="")
+                v = amount if count_v == 3 else v
                 print(count_k,count_v,v,end="  ")
                 self.spending_table.setItem(count_k,count_v,QTableWidgetItem(v))
                 count_v += 1
+
+            if row[1] == "Ingresos":
+                self.income += amount
+            else:
+                self.spendings += amount
             count_v = 0
             count_k += 1
             print()
+        
+        print(self.spendings,self.income)
+        #
+        self.headers()
+        t = threading.Thread(target = lambda:self.main.update_spending_sheet(self.spendings,self.income)).start()
+        #81.25,390
+        
 
+    def headers(self):
+        self.main.update_month(2021,9)
+        self.sheet.update_cell("F1","GASTOS:")
+        self.sheet.update_cell("G1",self.spendings)
+        self.sheet.update_cell("F2","INGRESOS:")
+        self.sheet.update_cell("G2",self.income)
 
 if __name__ == "__main__":
     import sys
